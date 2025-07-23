@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Theme Park Tycoon</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; font-family: 'Nunito', sans-serif; }
+    body, html { margin: 0; padding: 0; background: #e0f7fa; color: #333; }
+    .screen { display: none; padding: 20px; text-align: center; }
+    .active { display: block; }
+    h1 { font-size: 2.5em; margin-bottom: 0.5em; }
+    button {
+      padding: 10px 20px; margin: 10px; border: none;
+      background: #4db6ac; color: white; font-size: 1em;
+      border-radius: 10px; cursor: pointer;
+      user-select: none;
+    }
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(16, 30px);
+      gap: 3px;
+      justify-content: center;
+      margin: 20px auto;
+    }
+    .cell {
+      width: 30px; height: 30px;
+      background: #fff;
+      border: 1px solid #b2dfdb;
+      user-select: none;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 30px;
+      font-weight: 700;
+      color: #00695c;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .building {
+      background: #80cbc4;
+      cursor: pointer;
+    }
+    .shop {
+      margin: 20px auto;
+      text-align: center;
+      max-width: 350px;
+    }
+    .shop button {
+      display: block;
+      width: 90%;
+      max-width: 300px;
+      margin: 5px auto;
+      white-space: nowrap;
+    }
+    #money {
+      margin-bottom: 10px;
+      font-weight: 700;
+      font-size: 1.2em;
+      color: #00695c;
+      text-align: center;
+    }
+    #bottomInfo {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 15px;
+      padding: 10px 0;
+      background: #4db6ac;
+      border-radius: 12px;
+      color: white;
+      font-weight: 700;
+      font-size: 1.1em;
+      user-select: none;
+    }
+    #visitorCount, #paycheckCountdown {
+      flex: 1;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+    #infoPopup {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #4db6ac;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 1.1em;
+      box-shadow: 0 0 10px rgba(0,0,0,0.15);
+      user-select: none;
+      display: none;
+      z-index: 10000;
+    }
+  </style>
+</head>
+<body>
+  <div id="home" class="screen active">
+    <h1>Theme Park Tycoon</h1>
+    <button onclick="showScreen('howTo')">How to Play</button>
+    <button onclick="startGame()">Play</button>
+    <button onclick="resetProgress()">Reset Progress</button>
+  </div>
+
+  <div id="howTo" class="screen">
+    <h1>How to Play</h1>
+    <p>Buy rides and food stands to earn money. Place ticket booths to gain visitors over time. Campgrounds and restaurants increase visitor growth. Visitors affect your park popularity!</p>
+    <button onclick="showScreen('home')">Back to Home</button>
+  </div>
+
+  <div id="game" class="screen">
+    <h1>Theme Park</h1>
+
+    <div id="money">Money: $100</div>
+    <div class="shop" id="shopButtons"></div>
+    <div id="grid"></div>
+    <button onclick="goHome()">Back to Home</button>
+
+    <div id="bottomInfo">
+      <div id="visitorCount">Visitors: 0</div>
+      <div id="paycheckCountdown">Next paycheck in: 60s</div>
+    </div>
+  </div>
+
+  <div id="infoPopup"></div>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const moneyDisplay = document.getElementById('money');
+    const incomeDisplay = document.getElementById('incomePerMin');
+    const countdownDisplay = document.getElementById('paycheckCountdown');
+    const visitorDisplay = document.getElementById('visitorCount');
+    const infoPopup = document.getElementById('infoPopup');
+    const shopButtons = document.getElementById('shopButtons');
+
+    let money = 100;
+    let incomePerMinute = 0;
+    let selected = null;
+    let cells = [];
+    let incomeInterval;
+    let countdownInterval;
+    let visitorInterval;
+    let countdownSeconds = 60;
+    let visitors = 0;
+
+    const SAVE_KEY = 'themeParkTycoonSave';
+
+    const attractions = [
+      { name: 'Bumper Cars', cost: 100, income: 10, emoji: '🎡', visitorBoost: 0 },
+      { name: 'Carousel', cost: 1000, income: 120, emoji: '🎠', visitorBoost: 0 },
+      { name: 'Ferris Wheel', cost: 25000, income: 1000, emoji: '🎡', visitorBoost: 0 },
+      { name: 'Roller Coaster', cost: 1000000, income: 80000, emoji: '🎢', visitorBoost: 0 },
+      { name: 'Hot Dog Stand', cost: 120, income: 10, emoji: '🌭', visitorBoost: 0 },
+      { name: 'Drink Station', cost: 150, income: 15, emoji: '🥤', visitorBoost: 0 },
+      { name: 'Ice Cream Truck', cost: 250, income: 25, emoji: '🍦', visitorBoost: 0 },
+
+      { name: 'Campground', cost: 500, income: 50, emoji: '🏕️', visitorBoost: 0.10 },
+      { name: 'Park Map', cost: 125, income: 10, emoji: '🗺️', visitorBoost: 0 },
+      { name: 'Ticket Booth', cost: 0, income: 0, emoji: '🎟️', visitorBoost: 0 },
+      { name: 'Arcade', cost: 2000, income: 200, emoji: '🎰', visitorBoost: 0 },
+      { name: 'Boat Ride', cost: 300, income: 25, emoji: '🚣', visitorBoost: 0 },
+      { name: 'Mini Golf', cost: 750, income: 65, emoji: '⛳️', visitorBoost: 0 },
+      { name: 'Restaurant', cost: 1000, income: 50, emoji: '🍔🌮🍟', visitorBoost: 0.15 },
+      { name: 'Flume', cost: 5000, income: 550, emoji: '🌊🚤', visitorBoost: 0 }
+    ];
+
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      hideInfo();
+    }
+
+    function buildShop() {
+      shopButtons.innerHTML = '';
+      attractions.forEach(attr => {
+        const btn = document.createElement('button');
+        btn.textContent = `${attr.emoji} ${attr.name} - $${attr.cost.toLocaleString()} (+$${attr.income.toLocaleString()}/min)${attr.visitorBoost > 0 ? ' - Increases visitors' : ''}${attr.cost === 0 ? ' (Free)' : ''}`;
+        btn.onclick = () => buy(attr);
+        shopButtons.appendChild(btn);
+      });
+    }
+
+    function startGame() {
+      showScreen('game');
+      if (cells.length === 0) {
+        for (let i = 0; i < 256; i++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.index = i;
+          cell.onclick = () => {
+            if (cell.classList.contains('building')) {
+              showInfo(cell);
+            } else {
+              place(cell);
+            }
+          };
+          grid.appendChild(cell);
+          cells.push(cell);
+        }
+      }
+      buildShop();
+      loadGame();
+      updateMoney();
+      updateIncome();
+      updateVisitors();
+      startCountdown();
+      startVisitorGain();
+      if (incomeInterval) clearInterval(incomeInterval);
+      incomeInterval = setInterval(() => {
+        money += incomePerMinute;
+        updateMoney();
+        saveGame();
+      }, 60000);
+    }
+
+    function buy(attr) {
+      selected = attr;
+      hideInfo();
+    }
+
+    function place(cell) {
+      if (!selected) return;
+      if (cell.classList.contains('building')) return;
+      if (money < selected.cost) {
+        alert("Not enough money!");
+        return;
+      }
+      money -= selected.cost;
+      incomePerMinute += selected.income;
+      cell.classList.add('building');
+      cell.textContent = selected.emoji;
+      cell.dataset.name = selected.name;
+      cell.dataset.income = selected.income;
+      cell.dataset.visitorBoost = selected.visitorBoost;
+      updateMoney();
+      updateIncome();
+      updateVisitors();
+      saveGame();
+    }
+
+    function showInfo(cell) {
+      const name = cell.dataset.name;
+      const income = cell.dataset.income;
+      const visitorBoost = cell.dataset.visitorBoost;
+      if (name !== undefined) {
+        let msg = `${name} earns $${parseInt(income).toLocaleString()}/min`;
+        if (visitorBoost > 0) msg += ` and increases visitors by ${Math.round(visitorBoost * 100)}%`;
+        if (name === 'Ticket Booth') msg += `. Gains visitors over time (see instructions).`;
+        infoPopup.textContent = msg;
+        infoPopup.style.display = 'block';
+        clearTimeout(infoPopup.timeout);
+        infoPopup.timeout = setTimeout(() => {
+          infoPopup.style.display = 'none';
+        }, 4000);
+      }
+    }
+
+    function hideInfo() {
+      infoPopup.style.display = 'none';
+      if (infoPopup.timeout) clearTimeout(infoPopup.timeout);
+    }
+
+    function updateMoney() {
+      moneyDisplay.textContent = `Money: $${money.toLocaleString()}`;
+    }
+
+    function updateIncome() {
+      incomeDisplay.textContent = `Income: $${incomePerMinute.toLocaleString()}/min`;
+    }
+
+    function updateVisitors() {
+      visitorDisplay.textContent = `Visitors: ${visitors.toLocaleString()}`;
+    }
+
+    function saveGame() {
+      const buildings = cells.map(cell => {
+        if (cell.classList.contains('building')) {
+          return {
+            emoji: cell.textContent,
+            name: cell.dataset.name,
+            income: cell.dataset.income,
+            visitorBoost: cell.dataset.visitorBoost
+          };
+        }
+        return null;
+      });
+      const saveData = {
+        money,
+        incomePerMinute,
+        countdownSeconds,
+        visitors,
+        buildings
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
+    }
+
+    function loadGame() {
+      const saved = localStorage.getItem(SAVE_KEY);
+      if (!saved) return;
+      try {
+        const data = JSON.parse(saved);
+        money = data.money !== undefined ? data.money : 100;
+        incomePerMinute = data.incomePerMinute || 0;
+        countdownSeconds = data.countdownSeconds !== undefined ? data.countdownSeconds : 60;
+        visitors = data.visitors || 0;
+        if (data.buildings && data.buildings.length === cells.length) {
+          data.buildings.forEach((b, i) => {
+            if (b) {
+              cells[i].classList.add('building');
+              cells[i].textContent = b.emoji;
+              cells[i].dataset.name = b.name;
+              cells[i].dataset.income = b.income;
+              cells[i].dataset.visitorBoost = b.visitorBoost;
+            } else {
+              cells[i].classList.remove('building');
+              cells[i].textContent = '';
+              delete cells[i].dataset.name;
+              delete cells[i].dataset.income;
+              delete cells[i].dataset.visitorBoost;
+            }
+          });
+        }
+        updateVisitors();
+      } catch {
+        console.warn('Failed to load saved game');
+      }
+    }
+
+    function resetProgress() {
+      if (confirm("Are you sure you want to reset your progress? This cannot be undone.")) {
+        localStorage.removeItem(SAVE_KEY);
+        money = 100;
+        incomePerMinute = 0;
+        countdownSeconds = 60;
+        visitors = 0;
+        selected = null;
+        cells.forEach(cell => {
+          cell.classList.remove('building');
+          cell.textContent = '';
+          delete cell.dataset.name;
+          delete cell.dataset.income;
+          delete cell.dataset.visitorBoost;
+        });
+        updateMoney();
+        updateIncome();
+        updateVisitors();
+        updateCountdown();
+        showScreen('home');
+      }
+    }
+
+    function goHome() {
+      showScreen('home');
+      if (incomeInterval) clearInterval(incomeInterval);
+      if (countdownInterval) clearInterval(countdownInterval);
+      if (visitorInterval) clearInterval(visitorInterval);
+      saveGame();
+      hideInfo();
+    }
+
+    function startCountdown() {
+      updateCountdown();
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        countdownSeconds--;
+        if (countdownSeconds <= 0) {
+          money += incomePerMinute;
+          updateMoney();
+          countdownSeconds = 60;
+          saveGame();
+        }
+        updateCountdown();
+      }, 1000);
+    }
+
+    function updateCountdown() {
+      countdownDisplay.textContent = `Next paycheck in: ${countdownSeconds}s`;
+    }
+
+    // Visitor gain per minute based on ticket booths and visitor boosts
+    function startVisitorGain() {
+      if (visitorInterval) clearInterval(visitorInterval);
+      visitorInterval = setInterval(() => {
+        // Count ticket booths placed
+        const ticketBooths = cells.filter(c => c.dataset.name === 'Ticket Booth').length;
+
+        if (ticketBooths === 0) return; // No visitors if no ticket booth
+
+        // Base visitors gained per ticket booth per minute:
+        // 1 visitor/min if visitors < 50
+        // 2 visitors/min if visitors 50-99
+        // 3 visitors/min if visitors >= 100
+
+        let gainPerBooth = 1;
+        if (visitors >= 100) gainPerBooth = 3;
+        else if (visitors >= 50) gainPerBooth = 2;
+
+        let totalGain = ticketBooths * gainPerBooth;
+
+        // Calculate visitor boost from campgrounds and restaurants (multiplicative)
+        let boost = 1;
+        cells.forEach(cell => {
+          if (cell.classList.contains('building')) {
+            const boostValue = parseFloat(cell.dataset.visitorBoost);
+            if (!isNaN(boostValue) && boostValue > 0) {
+              boost *= (1 + boostValue);
+            }
+          }
+        });
+
+        totalGain = Math.floor(totalGain * boost);
+
+        visitors += totalGain;
+        updateVisitors();
+        saveGame();
+      }, 60000); // every minute
+    }
+  </script>
+</body>
+</html>
